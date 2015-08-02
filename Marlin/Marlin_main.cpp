@@ -553,6 +553,10 @@ void servo_init()
   #endif
 }
 
+float previous_position_e;
+unsigned long last_time_equal_e, last_time_not_equal_e;
+#define FILAMENT_FLOW_TRIGGER_INTERVAL  3000
+bool e_move_flag = false, filament_flow_signal, FC_Flag = false;
 
 void setup()
 {
@@ -620,8 +624,11 @@ void setup()
   digitalWrite(SERVO0_PIN, LOW); // turn it off
 #endif // Z_PROBE_SLED
   setup_homepin();
-}
 
+  pinMode(FILAMENT_FLOW_PIN, INPUT);
+  previous_position_e = current_position[E_AXIS];
+  last_time_equal_e = last_time_not_equal_e = millis();
+}
 
 void loop()
 {
@@ -668,6 +675,32 @@ void loop()
   manage_inactivity();
   checkHitEndstops();
   lcd_update();
+
+  if(previous_position_e != current_position[E_AXIS])
+  {
+    last_time_not_equal_e = millis();
+    previous_position_e = current_position[E_AXIS];
+    if(millis() - last_time_equal_e > FILAMENT_FLOW_TRIGGER_INTERVAL)
+      e_move_flag = true;
+    }
+
+  if((previous_position_e == current_position[E_AXIS]) && (millis() - last_time_not_equal_e > FILAMENT_FLOW_TRIGGER_INTERVAL))
+  {
+    last_time_equal_e = millis();
+    e_move_flag = false;
+  }
+
+  filament_flow_signal = digitalRead(FILAMENT_FLOW_PIN);
+  if(((filament_flow_signal == HIGH) && (e_move_flag == true)) || ((filament_flow_signal == LOW) && (e_move_flag == false))) 
+  {
+    if(FC_Flag == false)
+    {
+      enquecommand_P(PSTR("M600"));
+      FC_Flag = true;
+    }
+    else
+      FC_Flag = false;
+  }
 }
 
 void get_command()

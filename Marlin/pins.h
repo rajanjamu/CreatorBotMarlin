@@ -592,7 +592,7 @@
     #define BEEPER             33
 
   #else
-
+    // Ramps Board Arduino Mega 2560
     #define X_STEP_PIN         54
     #define X_DIR_PIN          55
     #define X_ENABLE_PIN       38
@@ -626,6 +626,8 @@
     #define E1_STEP_PIN        36
     #define E1_DIR_PIN         34
     #define E1_ENABLE_PIN      30
+
+    #define FILAMENT_FLOW_PIN  44
 
 #if MB(RAMPS_13_EEB)  //FMM added for Filament Extruder
 #ifdef FILAMENT_SENSOR
