@@ -625,7 +625,7 @@ void setup()
 #endif // Z_PROBE_SLED
   setup_homepin();
 
-  pinMode(FILAMENT_FLOW_PIN, INPUT);
+  pinMode(FILAMENT_FLOW_PIN, INPUT_PULLUP);
   previous_position_e = current_position[E_AXIS];
   last_time_equal_e = last_time_not_equal_e = millis();
 }
@@ -680,11 +680,12 @@ void loop()
   {
     last_time_not_equal_e = millis();
     previous_position_e = current_position[E_AXIS];
-    if(millis() - last_time_equal_e > FILAMENT_FLOW_TRIGGER_INTERVAL)
-      e_move_flag = true;
-    }
+  }
 
-  if((previous_position_e == current_position[E_AXIS]) && (millis() - last_time_not_equal_e > FILAMENT_FLOW_TRIGGER_INTERVAL))
+  if(millis() - last_time_equal_e > FILAMENT_FLOW_TRIGGER_INTERVAL)
+    e_move_flag = true;
+
+  if(millis() - last_time_not_equal_e > FILAMENT_FLOW_TRIGGER_INTERVAL)
   {
     last_time_equal_e = millis();
     e_move_flag = false;
@@ -693,14 +694,15 @@ void loop()
   filament_flow_signal = digitalRead(FILAMENT_FLOW_PIN);
   if(((filament_flow_signal == HIGH) && (e_move_flag == true)) || ((filament_flow_signal == LOW) && (e_move_flag == false))) 
   {
+    filament_flow_signal ? SERIAL_PROTOCOLLNPGM("HIGH") : SERIAL_PROTOCOLLNPGM("LOW");
     if(FC_Flag == false)
     {
       enquecommand_P(PSTR("M600"));
       FC_Flag = true;
     }
-    else
-      FC_Flag = false;
   }
+  else
+    FC_Flag = false;
 }
 
 void get_command()
