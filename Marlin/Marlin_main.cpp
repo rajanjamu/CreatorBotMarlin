@@ -554,9 +554,10 @@ void servo_init()
 }
 
 float previous_position_e;
-unsigned long last_time_equal_e, last_time_not_equal_e;
+unsigned long last_change_time_e, last_trigger_resolve_time;
 #define FILAMENT_FLOW_TRIGGER_INTERVAL  3000
-bool e_move_flag = false, filament_flow_signal, FC_Flag = false;
+#define FILAMENT_FLOW_POST_TRIGGER_INTERVAL  15000
+bool e_move_flag = false, FC_Flag = false;
 
 void setup()
 {
@@ -626,8 +627,10 @@ void setup()
   setup_homepin();
 
   pinMode(FILAMENT_FLOW_PIN, INPUT_PULLUP);
+  pinMode(42, OUTPUT);
   previous_position_e = current_position[E_AXIS];
-  last_time_equal_e = last_time_not_equal_e = millis();
+  last_change_time_e = 0;
+  last_trigger_resolve_time = millis();
 }
 
 void loop()
@@ -675,34 +678,38 @@ void loop()
   manage_inactivity();
   checkHitEndstops();
   lcd_update();
+    
 
   if(previous_position_e != current_position[E_AXIS])
   {
-    last_time_not_equal_e = millis();
+    last_change_time_e = millis();
     previous_position_e = current_position[E_AXIS];
   }
 
-  if(millis() - last_time_equal_e > FILAMENT_FLOW_TRIGGER_INTERVAL)
+  if(millis() - last_change_time_e > FILAMENT_FLOW_TRIGGER_INTERVAL)
+    e_move_flag = false;
+  else
     e_move_flag = true;
 
-  if(millis() - last_time_not_equal_e > FILAMENT_FLOW_TRIGGER_INTERVAL)
+  // e_move_flag ? digitalWrite(42, HIGH) : digitalWrite(42, LOW);
+  if(!FC_Flag && digitalRead(FILAMENT_FLOW_PIN) && e_move_flag && (millis() - last_trigger_resolve_time > FILAMENT_FLOW_POST_TRIGGER_INTERVAL))
   {
-    last_time_equal_e = millis();
-    e_move_flag = false;
+    enquecommand_P(PSTR("M600"));
+    FC_Flag = true;
   }
 
-  filament_flow_signal = digitalRead(FILAMENT_FLOW_PIN);
-  if(((filament_flow_signal == HIGH) && (e_move_flag == true)) || ((filament_flow_signal == LOW) && (e_move_flag == false))) 
-  {
-    filament_flow_signal ? SERIAL_PROTOCOLLNPGM("HIGH") : SERIAL_PROTOCOLLNPGM("LOW");
-    if(FC_Flag == false)
-    {
-      enquecommand_P(PSTR("M600"));
-      FC_Flag = true;
-    }
-  }
-  else
-    FC_Flag = false;
+  // filament_flow_signal = digitalRead(FILAMENT_FLOW_PIN);
+  // if(((filament_flow_signal == HIGH) && (e_move_flag == true)) || ((filament_flow_signal == LOW) && (e_move_flag == false))) 
+  // {
+  //   SERIAL_PROTOCOLLNPGM("Yo");
+  //   if(FC_Flag == false)
+  //   {
+  //     SERIAL_PROTOCOLLNPGM("Should trigger M600");
+  //     enquecommand_P(PSTR("M600"));
+  //     FC_Flag = true;
+  //   }
+  // }
+
 }
 
 void get_command()
@@ -1694,6 +1701,9 @@ void process_commands()
       feedmultiply = saved_feedmultiply;
       previous_millis_cmd = millis();
       endstops_hit_on_purpose();
+
+      last_trigger_resolve_time = millis();
+
       break;
 
 #ifdef ENABLE_AUTO_BED_LEVELING
@@ -3703,6 +3713,10 @@ case 404:  //M404 Enter the nominal filament width (3mm, 1.75mm ) N<3.0> or disp
             target[E_AXIS]+=(-1)*FILAMENTCHANGE_FINALRETRACT ;
           #endif
         }
+
+        FC_Flag = false;
+        last_trigger_resolve_time = millis();
+
         current_position[E_AXIS]=target[E_AXIS]; //the long retract of L is compensated by manual filament feeding
         plan_set_e_position(current_position[E_AXIS]);
         plan_buffer_line(target[X_AXIS], target[Y_AXIS], target[Z_AXIS], target[E_AXIS], feedrate/60, active_extruder); //should do nothing
