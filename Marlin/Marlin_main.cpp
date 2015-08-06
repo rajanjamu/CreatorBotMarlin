@@ -556,7 +556,7 @@ void servo_init()
 float previous_position_e;
 unsigned long last_change_time_e, last_trigger_resolve_time;
 #define FILAMENT_FLOW_TRIGGER_INTERVAL  3000
-#define FILAMENT_FLOW_POST_TRIGGER_INTERVAL  15000
+#define FILAMENT_FLOW_POST_TRIGGER_INTERVAL  10000
 bool e_move_flag = false, FC_Flag = false;
 
 void setup()
@@ -680,18 +680,18 @@ void loop()
   lcd_update();
     
 
+
   if(previous_position_e != current_position[E_AXIS])
   {
     last_change_time_e = millis();
     previous_position_e = current_position[E_AXIS];
   }
-
+    
   if(millis() - last_change_time_e > FILAMENT_FLOW_TRIGGER_INTERVAL)
     e_move_flag = false;
   else
     e_move_flag = true;
 
-  // e_move_flag ? digitalWrite(42, HIGH) : digitalWrite(42, LOW);
   if(!FC_Flag && digitalRead(FILAMENT_FLOW_PIN) && e_move_flag && (millis() - last_trigger_resolve_time > FILAMENT_FLOW_POST_TRIGGER_INTERVAL))
   {
     enquecommand_P(PSTR("M600"));
