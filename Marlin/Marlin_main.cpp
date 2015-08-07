@@ -202,6 +202,14 @@
 #ifdef SDSUPPORT
 CardReader card;
 #endif
+
+#define E_MOTOR_ROTATE_TIME_RUNOUT 500
+float previous_position_e;
+unsigned long last_change_time_e;
+bool flag = false, e_motor_rotate = false;
+int count = 0;
+bool pauseAdded = false;
+
 float homing_feedrate[] = HOMING_FEEDRATE;
 bool axis_relative_modes[] = AXIS_RELATIVE_MODES;
 int feedmultiply=100; //100->1 200->2
@@ -469,6 +477,17 @@ void enquecommand_P(const char *cmd)
   }
 }
 
+void setup_pausepin()
+{
+  #if defined(FILAMENT_FLOW_PIN) && FILAMENT_FLOW_PIN > -1
+    SET_INPUT(FILAMENT_FLOW_PIN);
+    WRITE(FILAMENT_FLOW_PIN,HIGH);
+    // pinMode(FILAMENT_FLOW_PIN, INPUT);
+    // digitalWrite(FILAMENT_FLOW_PIN,LOW);
+    last_change_time_e = millis();
+  #endif
+}
+
 void setup_killpin()
 {
   #if defined(KILL_PIN) && KILL_PIN > -1
@@ -553,14 +572,9 @@ void servo_init()
   #endif
 }
 
-float previous_position_e;
-unsigned long last_change_time_e, last_trigger_resolve_time;
-#define FILAMENT_FLOW_TRIGGER_INTERVAL  3000
-#define FILAMENT_FLOW_POST_TRIGGER_INTERVAL  10000
-bool e_move_flag = false, FC_Flag = false;
-
 void setup()
 {
+  setup_pausepin();
   setup_killpin();
   setup_powerhold();
   MYSERIAL.begin(BAUDRATE);
@@ -625,12 +639,6 @@ void setup()
   digitalWrite(SERVO0_PIN, LOW); // turn it off
 #endif // Z_PROBE_SLED
   setup_homepin();
-
-  pinMode(FILAMENT_FLOW_PIN, INPUT_PULLUP);
-  pinMode(42, OUTPUT);
-  previous_position_e = current_position[E_AXIS];
-  last_change_time_e = 0;
-  last_trigger_resolve_time = millis();
 }
 
 void loop()
@@ -678,37 +686,17 @@ void loop()
   manage_inactivity();
   checkHitEndstops();
   lcd_update();
-    
-
 
   if(previous_position_e != current_position[E_AXIS])
   {
     last_change_time_e = millis();
     previous_position_e = current_position[E_AXIS];
   }
-    
-  if(millis() - last_change_time_e > FILAMENT_FLOW_TRIGGER_INTERVAL)
-    e_move_flag = false;
-  else
-    e_move_flag = true;
 
-  if(!FC_Flag && digitalRead(FILAMENT_FLOW_PIN) && e_move_flag && (millis() - last_trigger_resolve_time > FILAMENT_FLOW_POST_TRIGGER_INTERVAL))
-  {
-    enquecommand_P(PSTR("M600"));
-    FC_Flag = true;
-  }
-
-  // filament_flow_signal = digitalRead(FILAMENT_FLOW_PIN);
-  // if(((filament_flow_signal == HIGH) && (e_move_flag == true)) || ((filament_flow_signal == LOW) && (e_move_flag == false))) 
-  // {
-  //   SERIAL_PROTOCOLLNPGM("Yo");
-  //   if(FC_Flag == false)
-  //   {
-  //     SERIAL_PROTOCOLLNPGM("Should trigger M600");
-  //     enquecommand_P(PSTR("M600"));
-  //     FC_Flag = true;
-  //   }
-  // }
+  if(millis() - last_change_time_e > E_MOTOR_ROTATE_TIME_RUNOUT)
+    e_motor_rotate = false;
+  else 
+    e_motor_rotate = true;
 
 }
 
@@ -1701,9 +1689,6 @@ void process_commands()
       feedmultiply = saved_feedmultiply;
       previous_millis_cmd = millis();
       endstops_hit_on_purpose();
-
-      last_trigger_resolve_time = millis();
-
       break;
 
 #ifdef ENABLE_AUTO_BED_LEVELING
@@ -3714,9 +3699,6 @@ case 404:  //M404 Enter the nominal filament width (3mm, 1.75mm ) N<3.0> or disp
           #endif
         }
 
-        FC_Flag = false;
-        last_trigger_resolve_time = millis();
-
         current_position[E_AXIS]=target[E_AXIS]; //the long retract of L is compensated by manual filament feeding
         plan_set_e_position(current_position[E_AXIS]);
         plan_buffer_line(target[X_AXIS], target[Y_AXIS], target[Z_AXIS], target[E_AXIS], feedrate/60, active_extruder); //should do nothing
@@ -4445,6 +4427,38 @@ void manage_inactivity(bool ignore_stepper_queue/*=false*/) //default argument s
     }
   #endif
 
+  #if defined(FILAMENT_FLOW_PIN) && FILAMENT_FLOW_PIN > -1                                          
+    if( 0 == READ(FILAMENT_FLOW_PIN) )
+    { 
+      count++;
+      if(count>20)
+      {
+        if (movesplanned() || IS_SD_PRINTING)
+        {
+          pause();
+        }
+        else if (!flag)
+        { 
+          LCD_MESSAGEPGM("No Filament");
+          SERIAL_PROTOCOLLN("No Filament");
+          flag=true;
+        }
+      }
+    }
+    else if(flag)
+    {
+      LCD_MESSAGEPGM("Filament Added");
+      SERIAL_PROTOCOLLN("Filament Added");
+      flag=false;
+      count=0;
+    }
+    else
+    {
+      pauseAdded=false;
+      count=0;
+    }
+  #endif
+
 #if defined(HOME_PIN) && HOME_PIN > -1
     // Check to see if we have to home, use poor man's debouncer
     // ---------------------------------------------------------
@@ -4533,6 +4547,19 @@ void kill()
   cli();   // disable interrupts
   suicide();
   while(1) { /* Intentionally left empty */ } // Wait for reset
+}
+
+void pause()
+{
+  if(degHotend(active_extruder)>150)
+  {
+    if (pauseAdded == false)
+    {
+      SERIAL_PROTOCOLLN("Pause called");
+      pauseAdded = true;
+      enquecommand_P(PSTR("M600"));
+    }  
+  }
 }
 
 void Stop()
